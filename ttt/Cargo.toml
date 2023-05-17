@@ -1,5 +1,5 @@
 [package]
-name = "game"
+name = "ttt"
 version = "0.1.0"
 edition = "2021"
 
@@ -8,10 +8,10 @@ edition = "2021"
 [dependencies]
 macroquad = "0.3"
 winapi = "0.3.9"
-rand = "0.8.5"
-colored = "2.0.0"
+#rand = "0.8.5"
 frame_lag = { path = "../frame_lag" }
-hecs = "0.10.2"
-rapier2d = { version = "0.17.2", features = ["simd-stable", "parallel"] }
+render = { path = "../render", features = ["bevy_ecs"] }
+asset_macro = { path = "../asset_macro" }
+bevy_ecs = "0.10.1"
 nalgebra = "0.32.2"
 rustc-hash = "1.1.0"

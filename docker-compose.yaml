@@ -1,0 +1,13 @@
+version: "3.9"
+services:
+  builds:
+    build: .
+    volumes:
+      - cargo_cache:/usr/local/cargo/registry/
+      - build_cache:/root/target_link/
+
+volumes:
+  cargo_cache:
+    external: true
+  build_cache:
+    external: true
