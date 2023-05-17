@@ -15,3 +15,5 @@ asset_macro = { path = "../asset_macro" }
 bevy_ecs = "0.10.1"
 nalgebra = "0.32.2"
 rustc-hash = "1.1.0"
+lazy_static = "1.4.0"
+grid = "0.10.0"
