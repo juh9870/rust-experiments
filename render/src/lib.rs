@@ -7,19 +7,31 @@ use macroquad::prelude::*;
 use nalgebra::{vector, Vector2};
 use rustc_hash::FxHashMap;
 
-pub fn render_element(element: &RenderElement) {
+pub fn render_element(element: &RenderElement, position: Vector2<f32>, scale: Vector2<f32>) {
     match &element.kind {
         RenderElementKind::Texture(texture) => {
             let texture2d = texture.texture;
-            let x = texture.pos.x - texture2d.width() * texture.pivot.x;
-            let y = texture.pos.y - texture2d.height() * texture.pivot.y;
+            let x = position.x - texture2d.width() * texture.pivot.x;
+            let y = position.y - texture2d.height() * texture.pivot.y;
+
+            let w = texture
+                .dest_size
+                .map(|e| e.x)
+                .unwrap_or_else(|| texture2d.width())
+                * scale.x;
+            let h = texture
+                .dest_size
+                .map(|e| e.y)
+                .unwrap_or_else(|| texture2d.height())
+                * scale.y;
+
             draw_texture_ex(
                 texture2d,
                 x,
                 y,
                 texture.color,
                 DrawTextureParams {
-                    dest_size: None,
+                    dest_size: Some(Vec2::new(w, h)),
                     flip_x: texture.flip_x,
                     flip_y: texture.flip_y,
                     rotation: texture.rotation,
@@ -34,7 +46,7 @@ pub fn render_element(element: &RenderElement) {
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextureRenderer {
     pub texture: Texture2D,
-    pub pos: Vector2<f32>,
+    pub dest_size: Option<Vector2<f32>>,
     pub color: Color,
     pub source: Option<Rect>,
     pub rotation: f32,
@@ -47,13 +59,20 @@ impl TextureRenderer {
     pub fn new(texture: Texture2D) -> Self {
         TextureRenderer {
             texture,
-            pos: vector![0.0, 0.0],
+            dest_size: None,
             color: WHITE,
             pivot: vector![0.5, 0.5],
             flip_y: false,
             flip_x: false,
             rotation: 0.0,
             source: None,
+        }
+    }
+
+    pub fn with_pivot(texture: Texture2D, pivot: Vector2<f32>) -> Self {
+        TextureRenderer {
+            pivot,
+            ..Self::new(texture)
         }
     }
 }
@@ -136,26 +155,111 @@ impl AssetStore {
     }
 }
 
+#[derive(Debug, Copy, Clone, Default)]
+#[cfg_attr(feature = "bevy_ecs", derive(Component))]
+pub struct RenderPosition(pub Vector2<f32>);
+
+#[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "bevy_ecs", derive(Component))]
+pub struct RenderScale(pub Vector2<f32>);
+
+impl Default for RenderScale {
+    fn default() -> Self {
+        RenderScale(vector![1.0, 1.0])
+    }
+}
+
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "bevy_ecs", derive(Bundle))]
+pub struct RenderBundle {
+    pub pos: RenderPosition,
+    pub scale: RenderScale,
+    pub element: RenderElement,
+}
+
+impl RenderBundle {
+    pub fn new(element: RenderElement) -> Self {
+        RenderBundle {
+            pos: Default::default(),
+            scale: Default::default(),
+            element,
+        }
+    }
+}
+
 #[cfg(feature = "bevy_ecs")]
 pub fn draw_bevy_ecs(world: &mut World) {
     clear_background(DARKGRAY);
     // let store = world.resource::<&AssetStore>();
 
     let mut drawables = world
-        .query::<&RenderElement>()
+        .query::<(&RenderElement, &RenderPosition, Option<&RenderScale>)>()
         .iter_mut(world)
         .collect::<Vec<_>>();
-    drawables.sort();
+    drawables.sort_by_key(|e| e.0);
 
     for item in drawables {
-        render_element(item);
+        render_element(
+            item.0,
+            item.1 .0,
+            item.2.map(|e| e.0).unwrap_or_else(|| vector![0.0, 0.0]),
+        );
+    }
+}
+
+pub struct TargetRenderOptions<'a> {
+    pub target: RenderTarget,
+    pub force_integer_scaling: bool,
+    pub bounds: Vector2<f32>,
+    pub parent_camera: Option<&'a Camera2D>,
+}
+
+pub fn render_on_target<F: FnOnce(Vector2<f32>, &Camera2D)>(
+    options: TargetRenderOptions<'_>,
+    render: F,
+) {
+    let w = options.target.texture.width();
+    let h = options.target.texture.height();
+    let camera = Camera2D {
+        render_target: Some(options.target),
+        ..Camera2D::from_display_rect(Rect::new(0., 0., w, h))
+    };
+    set_camera(&camera);
+
+    render(vector![w, h], &camera);
+
+    match options.parent_camera {
+        None => set_default_camera(),
+        Some(camera) => set_camera(camera),
     }
 
-    draw_text(
-        format!("Fps: {}", get_fps()).as_str(),
-        20.0,
-        20.0,
-        30.0,
-        BLACK,
+    let fit = fit_into(vector![w, h], options.bounds, options.force_integer_scaling);
+
+    draw_texture_ex(
+        options.target.texture,
+        fit.x,
+        fit.y,
+        WHITE,
+        DrawTextureParams {
+            flip_y: true,
+            dest_size: Some(vec2(fit.w, fit.h)),
+            ..Default::default()
+        },
     );
+}
+
+pub fn fit_into(size: Vector2<f32>, bounds: Vector2<f32>, force_integer_scaling: bool) -> Rect {
+    let mut scale = (bounds.x / size.x).min(bounds.y / size.y);
+    if force_integer_scaling {
+        scale = scale.floor();
+    }
+    scale = scale.max(1.);
+    let w = scale * size.x;
+    let h = scale * size.y;
+    Rect {
+        x: (bounds.x - w) / 2.,
+        y: (bounds.y - h) / 2.,
+        w,
+        h,
+    }
 }
