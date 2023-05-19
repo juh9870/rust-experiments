@@ -5,8 +5,8 @@ use nalgebra::{vector, Vector2};
 use rustc_hash::FxHashMap;
 
 use render::{
-    draw_bevy_ecs, render_on_target, AssetStore, RenderBundle, RenderElement, RenderPosition,
-    RenderScale, TargetRenderOptions, TextureRenderer,
+    draw_bevy_ecs, draw_texture_fit, fit_into, render_on_target, AssetStore, RenderBundle,
+    RenderElement, RenderPosition, RenderScale, TextureRenderer,
 };
 
 use crate::glyphs::{Glyph, GlyphRegistry};
@@ -54,27 +54,20 @@ async fn main() {
         schedule.run(&mut world);
 
         clear_background(BLACK);
-        render_on_target(
-            TargetRenderOptions {
-                target: render_target,
-                force_integer_scaling: false,
-                bounds: vector![screen_width(), screen_height()],
-                parent_camera: None,
-            },
-            |size, c| {
-                clear_background(LIGHTGRAY);
-                render_on_target(
-                    TargetRenderOptions {
-                        target: board_render_target,
-                        force_integer_scaling: true,
-                        bounds: vector![size.x / 2., size.y],
-                        parent_camera: Some(c),
-                    },
-                    |_, _| {
-                        draw_bevy_ecs(&mut world);
-                    },
-                );
-            },
+        render_on_target(render_target, None, |size, c| {
+            clear_background(LIGHTGRAY);
+            render_on_target(board_render_target, Some(c), |_, _| {
+                draw_bevy_ecs(&mut world);
+            });
+
+            draw_texture_fit(board_render_target.texture, size, false, vector![0., 0.5]);
+        });
+
+        draw_texture_fit(
+            render_target.texture,
+            vector![screen_width(), screen_height()],
+            false,
+            vector![0.5, 0.5],
         );
         draw_text(
             format!("Fps: {}", get_fps()).as_str(),

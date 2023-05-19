@@ -207,36 +207,42 @@ pub fn draw_bevy_ecs(world: &mut World) {
     }
 }
 
-pub struct TargetRenderOptions<'a> {
-    pub target: RenderTarget,
-    pub force_integer_scaling: bool,
-    pub bounds: Vector2<f32>,
-    pub parent_camera: Option<&'a Camera2D>,
-}
-
 pub fn render_on_target<F: FnOnce(Vector2<f32>, &Camera2D)>(
-    options: TargetRenderOptions<'_>,
+    target: RenderTarget,
+    parent_camera: Option<&Camera2D>,
     render: F,
 ) {
-    let w = options.target.texture.width();
-    let h = options.target.texture.height();
+    let w = target.texture.width();
+    let h = target.texture.height();
     let camera = Camera2D {
-        render_target: Some(options.target),
+        render_target: Some(target),
         ..Camera2D::from_display_rect(Rect::new(0., 0., w, h))
     };
     set_camera(&camera);
 
     render(vector![w, h], &camera);
 
-    match options.parent_camera {
+    match parent_camera {
         None => set_default_camera(),
         Some(camera) => set_camera(camera),
     }
+}
 
-    let fit = fit_into(vector![w, h], options.bounds, options.force_integer_scaling);
+pub fn draw_texture_fit(
+    texture: Texture2D,
+    bounds: Vector2<f32>,
+    force_integer_scaling: bool,
+    pivot: Vector2<f32>,
+) {
+    let fit = fit_into(
+        vector![texture.width(), texture.height()],
+        vector![bounds.x, bounds.y],
+        force_integer_scaling,
+        pivot,
+    );
 
     draw_texture_ex(
-        options.target.texture,
+        texture,
         fit.x,
         fit.y,
         WHITE,
@@ -248,18 +254,47 @@ pub fn render_on_target<F: FnOnce(Vector2<f32>, &Camera2D)>(
     );
 }
 
-pub fn fit_into(size: Vector2<f32>, bounds: Vector2<f32>, force_integer_scaling: bool) -> Rect {
+pub fn fit_into(
+    size: Vector2<f32>,
+    bounds: Vector2<f32>,
+    force_integer_scaling: bool,
+    pivot: Vector2<f32>,
+) -> Rect {
     let mut scale = (bounds.x / size.x).min(bounds.y / size.y);
     if force_integer_scaling {
-        scale = scale.floor();
+        scale = scale.floor().max(1.);
     }
-    scale = scale.max(1.);
     let w = scale * size.x;
     let h = scale * size.y;
     Rect {
-        x: (bounds.x - w) / 2.,
-        y: (bounds.y - h) / 2.,
+        x: (bounds.x - w) * pivot.x,
+        y: (bounds.y - h) * pivot.y,
         w,
         h,
     }
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct AnimationData {
+    pub texture: Texture2D,
+    pub frame_size: Vector2<u32>,
+    pub gap: Vector2<u32>,
+    pub start_frame: u32,
+    pub end_frame: u32,
+    pub fps: f32,
+    pub repeat: AnimationRepeat,
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum AnimationRepeat {
+    None,
+    Loop,
+    Bounce,
+}
+
+#[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "bevy_ecs", derive(Component))]
+pub struct AnimationState {
+    pub animation: AnimationData,
+    pub start_time: u32,
 }
