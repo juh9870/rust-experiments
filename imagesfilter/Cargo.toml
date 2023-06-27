@@ -1,15 +1,13 @@
 [package]
-name = "miniscript"
+name = "imagesfilter"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-thiserror = "1"
-strum = "0.25"
-strum_macros = "0.25"
-num-traits = "0.2"
-chumsky = "1.0.0-alpha.4"
-derive_more = "0.99"
-lazy_static = "1"
+walkdir = "2"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+indicatif = "0.17"
+console = "0.15"

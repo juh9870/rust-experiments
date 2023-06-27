@@ -143,9 +143,9 @@ struct MacroInput {
 
 impl Parse for MacroInput {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        input.parse::<Token![in]>()?;
+        input.parse::<Token![use]>()?;
         let root_path = input.parse::<LitStr>()?.value();
-        input.parse::<Token![:]>()?;
+        input.parse::<Token![;]>()?;
         let declarations = input.parse_terminated(DeclarationInput::parse, Token![;])?;
         Ok(MacroInput {
             root_path,

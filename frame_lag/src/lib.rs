@@ -35,6 +35,12 @@ fn snap(num: &mut u64, to: u64) {
     }
 }
 
+impl Default for FrameData {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FrameData {
     pub fn new() -> FrameData {
         FrameData {

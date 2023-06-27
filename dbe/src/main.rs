@@ -12,6 +12,7 @@ use things::thing::Thing;
 use crate::editors::*;
 
 pub mod editors;
+mod graph;
 pub mod vm;
 
 #[macroquad::main("egui with macroquad")]

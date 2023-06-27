@@ -2,11 +2,15 @@
 pkgs.mkShell rec {
   buildInputs = with pkgs; [
     clang
+    openssl
+    pkg-config
     llvmPackages.bintools
     rustup
     cargo-cross
     alsa-lib
     exa
+    lldb
+    glibc.dev
   ];
   RUSTC_VERSION = pkgs.lib.readFile ./rust-toolchain;
   # https://github.com/rust-lang/rust-bindgen#environment-variables
@@ -26,6 +30,8 @@ pkgs.mkShell rec {
       alsa-lib
       # vulkan-loader
     ];
+
+  NIX_LD = pkgs.lib.fileContents "${pkgs.stdenv.cc}/nix-support/dynamic-linker";
 
   shellHook = ''
     export PATH=$PATH:''${CARGO_HOME:-~/.cargo}/bin
