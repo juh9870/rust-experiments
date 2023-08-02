@@ -1,8 +1,6 @@
 use num_traits::Num;
 use std::fmt::Display;
 
-use crate::errors::MsError;
-
 #[non_exhaustive]
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -26,12 +24,6 @@ macro_rules! numeric_as {
 
 macro_rules! numeric_from {
     ($type:ty) => {
-        // impl From<Value> for $type {
-        //     fn from(value: Value) -> Self {
-        //         value.as_f64() as $type
-        //     }
-        // }
-
         impl From<&Value> for $type {
             fn from(value: &Value) -> Self {
                 value.as_f64() as $type

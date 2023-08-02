@@ -1,4 +1,5 @@
 [workspace]
+resolver = "2"
 
 members = [
     "buildscript",
@@ -12,7 +13,10 @@ members = [
     "things",
     "rw_bot",
     "dumbvm",
-    "imagesfilter"
+    "imagesfilter",
+    "gulper",
+    "anim",
+    "post_processing"
 ]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html

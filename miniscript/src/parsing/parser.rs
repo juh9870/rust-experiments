@@ -1,12 +1,9 @@
 use std::str::FromStr;
 
+use crate::ast::{Span, Spanned};
 use chumsky::prelude::*;
 use derive_more::Display;
 use strum_macros::{AsRefStr, Display as StrumDisplay, EnumString, EnumVariantNames};
-use strum::{VariantNames};
-
-pub type Span = SimpleSpan<usize>;
-pub type Spanned<T> = (T, Span);
 
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Display)]
@@ -79,12 +76,20 @@ pub enum Token<'src> {
     Colon,
     #[display(fmt = "{}", .0)]
     Comment(&'src str),
-    #[display(fmt = ";")]
+    #[display(fmt = "\n")]
     EOL,
+    #[display(fmt = ";")]
+    Semicolon,
+
+    // Unsupported operators. Parsing them for better error reporting
+    #[display(fmt = "++")]
+    OpIncrement,
+    #[display(fmt = "--")]
+    OpDecrement,
 }
 
 #[derive(
-Debug, Clone, Copy, PartialEq, Eq, EnumString, EnumVariantNames, AsRefStr, StrumDisplay,
+    Debug, Clone, Copy, PartialEq, Eq, EnumString, EnumVariantNames, AsRefStr, StrumDisplay,
 )]
 #[strum(serialize_all = "lowercase")]
 pub enum Keyword {
@@ -115,29 +120,58 @@ pub enum Keyword {
     Repeat,
 }
 
+impl<'src> From<Keyword> for Token<'src> {
+    fn from(value: Keyword) -> Self {
+        value.token()
+    }
+}
+
+impl Keyword {
+    pub const fn token<'src>(&self) -> Token<'src> {
+        Token::Keyword(*self)
+    }
+}
+
 pub const UNICODE_FALLOFF: char = '\u{009F}';
 
 #[must_use]
-pub fn ident<'a, I: chumsky::input::ValueInput<'a> + chumsky::input::StrInput<'a, C>, C: text::Char, E: extra::ParserExtra<'a, I>>() -> impl Parser<'a, I, &'a C::Str, E> + Copy + Clone {
+pub fn ident<
+    'a,
+    I: chumsky::input::ValueInput<'a> + chumsky::input::StrInput<'a, C>,
+    C: text::Char,
+    E: extra::ParserExtra<'a, I>,
+>() -> impl Parser<'a, I, &'a C::Str, E> + Copy + Clone {
     any()
         // Use try_map over filter to get a better error on failure
         .try_map(|c: C, span| {
-            if c.to_char().is_ascii_alphabetic() || c.to_char() == '_' || c.to_char() > UNICODE_FALLOFF {
+            if c.to_char().is_ascii_alphabetic()
+                || c.to_char() == '_'
+                || c.to_char() > UNICODE_FALLOFF
+            {
                 Ok(c)
             } else {
-                Err(chumsky::error::Error::expected_found([], Some(chumsky::util::MaybeRef::Val(c)), span))
+                Err(chumsky::error::Error::expected_found(
+                    [],
+                    Some(chumsky::util::MaybeRef::Val(c)),
+                    span,
+                ))
             }
         })
         .then(
             any()
                 // This error never appears due to `repeated` so can use `filter`
-                .filter(|c: &C| c.to_char().is_ascii_alphanumeric() || c.to_char() == '_' || c.to_char() > UNICODE_FALLOFF)
+                .filter(|c: &C| {
+                    c.to_char().is_ascii_alphanumeric()
+                        || c.to_char() == '_'
+                        || c.to_char() > UNICODE_FALLOFF
+                })
                 .repeated(),
         )
         .slice()
 }
 
-pub fn lexer<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Token<'src>>>, extra::Err<Rich<'src, char, Span>>> {
+pub fn lexer<'src>(
+) -> impl Parser<'src, &'src str, Vec<Spanned<Token<'src>>>, extra::Err<Rich<'src, char, Span>>> {
     let digits = text::digits(10).slice();
 
     let frac = just('.').then(digits.or_not());
@@ -150,25 +184,32 @@ pub fn lexer<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Token<'src>>>, 
     let number = digits
         .then(frac.or_not())
         .then(exp.or_not())
-        .map_slice(Token::Number).boxed();
+        .map_slice(Token::Number)
+        .boxed();
 
     let string = just('"')
         .ignore_then(
             none_of('"')
                 .repeated()
-                .separated_by(just("\"\"")),
+                .separated_by(just("\"\""))
+                .map_slice(Token::String),
         )
         .then_ignore(just('"'))
-        .map_slice(Token::String).boxed();
+        .boxed();
 
     let identifier = ident()
-        .map_slice(|slice|
+        .map_slice(|slice| {
             Keyword::from_str(slice)
                 .map(Token::Keyword)
                 .unwrap_or_else(|_| Token::Identifier(slice))
-        ).boxed();
+        })
+        .boxed();
 
     let operator = choice((
+        // Parsing unsupported operators first
+        just(Token::OpIncrement.to_string()).to(Token::OpIncrement),
+        just(Token::OpDecrement.to_string()).to(Token::OpDecrement),
+        // Thenregular operators
         just(Token::OpEqual.to_string()).to(Token::OpEqual),
         just(Token::OpNotEqual.to_string()).to(Token::OpNotEqual),
         just(Token::OpGreatEqual.to_string()).to(Token::OpGreatEqual),
@@ -188,7 +229,8 @@ pub fn lexer<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Token<'src>>>, 
         just(Token::OpAssign.to_string()).to(Token::OpAssign),
         just(Token::OpLesser.to_string()).to(Token::OpLesser),
         just(Token::OpGreater.to_string()).to(Token::OpGreater),
-    )).boxed();
+    ))
+    .boxed();
 
     let parentheses = choice((
         just('(').to(Token::LParen),
@@ -197,37 +239,47 @@ pub fn lexer<'src>() -> impl Parser<'src, &'src str, Vec<Spanned<Token<'src>>>, 
         just(']').to(Token::RSquare),
         just('{').to(Token::LCurly),
         just('}').to(Token::RCurly),
-    )).boxed();
+    ))
+    .boxed();
 
     let others = choice((
         just('.').to(Token::Dot),
+        just(',').to(Token::Comma),
         just(':').to(Token::Colon),
-    )).boxed();
+        just('@').to(Token::AddressOf),
+    ))
+    .boxed();
 
     let comment = just("//")
-        .ignore_then(any()
-            .and_is(just('\n').not())
-            .repeated()
-            .map_slice(Token::Comment)
-        ).boxed();
+        .ignore_then(
+            any()
+                .and_is(just('\n').not())
+                .repeated()
+                .map_slice(Token::Comment),
+        )
+        .boxed();
 
-    let line_break = one_of(";\n").to(Token::EOL);
+    let quiet_line_break = just("\n").to(Token::EOL);
+    let loud_line_break = just(";").to(Token::Semicolon);
 
     let token = number
         .or(string)
         .or(identifier)
         .or(comment)
-        .or(line_break)
+        .or(quiet_line_break)
+        .or(loud_line_break)
         .or(operator)
         .or(parentheses)
         .or(others);
 
     token
         .map_with_span(|tok, span| (tok, span))
-        .padded_by(any()
-            .filter(|c: &char| c.is_whitespace() && *c != '\n')
-            .ignored()
-            .repeated())
+        .padded_by(
+            any()
+                .filter(|c: &char| c.is_whitespace() && *c != '\n')
+                .ignored()
+                .repeated(),
+        )
         // .recover_with(skip_then_retry_until(any().ignored(), end()))
         .repeated()
         .collect()

@@ -1,38 +1,38 @@
-use crate::{errors::MsError, value::Value};
+use crate::value::Value;
+use std::ops::{Index, IndexMut, Sub};
+
+type Stack = Vec<Value>;
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
+pub struct StackIndex(pub(crate) usize);
+
+impl StackIndex {
+    pub fn with_offset(&self, offset: usize) -> Register {
+        return Register(self.0 + offset);
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
-pub struct StackOffset(u32);
+pub struct Register(usize);
 
-pub trait VmStackExtension {
-    fn get(&self, index: StackOffset) -> Result<&Value, MsError>;
-    fn get_mut(&mut self, index: StackOffset) -> Result<&mut Value, MsError>;
-    fn set(&mut self, index: StackOffset, value: Value) -> Result<(), MsError>;
+// #[inline(always)]
+// fn get_index(stack: &Vec<Value>, index: &Register) -> usize {
+//     stack.len().sub(index.0 as usize)
+// }
+
+impl Index<&Register> for Vec<Value> {
+    type Output = Value;
+
+    #[inline(always)]
+    fn index(&self, index: &Register) -> &Self::Output {
+        &self[index.0]
+    }
 }
 
-#[inline(always)]
-fn get_index(stack: &Vec<Value>, index: StackOffset) -> Result<usize, MsError> {
-    stack
-        .len()
-        .checked_sub(index.0 as usize)
-        .ok_or_else(|| MsError::BadRegister(index, stack.len()))
-}
-
-impl VmStackExtension for Vec<Value> {
+impl IndexMut<&Register> for Vec<Value> {
     #[inline(always)]
-    fn get(&self, index: StackOffset) -> Result<&Value, MsError> {
-        Ok(&self[get_index(self, index)?])
-    }
-
-    #[inline(always)]
-    fn get_mut(&mut self, index: StackOffset) -> Result<&mut Value, MsError> {
-        let idx = get_index(self, index)?;
-        Ok(&mut self[idx])
-    }
-
-    #[inline(always)]
-    fn set(&mut self, index: StackOffset, value: Value) -> Result<(), MsError> {
-        let idx = get_index(self, index)?;
-        self[idx] = value;
-        Ok(())
+    fn index_mut(&mut self, index: &Register) -> &mut Self::Output {
+        let index = index.0;
+        &mut self[index]
     }
 }
