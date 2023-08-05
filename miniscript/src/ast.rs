@@ -33,10 +33,10 @@ pub enum Statement<'src> {
     Expression(Spanned<Expr<'src>>),
     If(
         /* conditions and their bodies for else-if chain */
-        Vec<(Spanned<Expr<'src>>, Body<'src>)>,
+        Vec<(Spanned<Spanned<Expr<'src>>>, Body<'src>)>,
         /* else */ Option<Body<'src>>,
     ),
-    While(Spanned<Expr<'src>>, Body<'src>),
+    While(Spanned<Spanned<Expr<'src>>>, Body<'src>),
     For(Spanned<&'src str>, Spanned<Expr<'src>>, Body<'src>),
     Break,
     Continue,

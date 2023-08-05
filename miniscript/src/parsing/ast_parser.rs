@@ -209,6 +209,7 @@ fn expr_parser<'tokens, 'src: 'tokens>(
         .or(expr
             .clone()
             .delimited_by(l_paren.clone(), just(Token::RParen)))
+        .map_with_span(|item, span| (item.0, span))
         // Attempt to recover anything that looks like a parens expression but contains errors
         .recover_with(via_parser(nested_delimiters(
             Token::LParen,
@@ -424,7 +425,7 @@ pub fn parser<'tokens, 'src: 'tokens>() -> impl Parser<
                         "if statement must be followed by `then`",
                     ))
                 }
-                item.0
+                (item.0, span)
             });
         let token_else = just(Keyword::Else.token());
 
@@ -532,8 +533,7 @@ pub fn parser<'tokens, 'src: 'tokens>() -> impl Parser<
             });
 
         // While statement. `while <condition>; <body>; end while`
-        let while_statement = just(Keyword::While.token())
-            .ignore_then(expr.clone())
+        let while_statement = spanned!(just(Keyword::While.token()).ignore_then(expr.clone()))
             .then_ignore(eol!())
             .then(body.clone())
             .then_ignore(end!(Keyword::While, "end while"))

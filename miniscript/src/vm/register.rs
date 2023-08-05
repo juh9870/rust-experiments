@@ -1,4 +1,5 @@
 use crate::value::Value;
+use std::fmt::{Display, Formatter};
 use std::ops::{Index, IndexMut, Sub};
 
 type Stack = Vec<Value>;
@@ -9,6 +10,12 @@ pub struct StackIndex(pub(crate) usize);
 impl StackIndex {
     pub fn with_offset(&self, offset: usize) -> Register {
         return Register(self.0 + offset);
+    }
+}
+
+impl Display for StackIndex {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 

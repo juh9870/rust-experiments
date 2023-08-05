@@ -1,3 +1,4 @@
+use crate::value::Value;
 use thiserror::Error;
 
 pub const CODE_INTERNAL: u16 = 0;
@@ -29,24 +30,31 @@ impl MsError {
 pub enum InternalError {
     #[error("Operation not implemented")]
     NotImplemented,
+    #[error("OpCode at {} is unpatched", .0)]
+    UnpatchedOpCode(usize),
 }
 
 impl InternalError {
     fn raw_code(&self) -> u16 {
         match self {
             InternalError::NotImplemented => 0,
+            InternalError::UnpatchedOpCode(_) => 1,
         }
     }
 }
 
 #[derive(Debug, Error)]
 #[non_exhaustive]
-pub enum RuntimeError {}
+pub enum RuntimeError {
+    #[error("{}", .0)]
+    Custom(Value),
+}
 
 impl RuntimeError {
     fn raw_code(&self) -> u16 {
-        // match self {}
-        unreachable!()
+        match self {
+            RuntimeError::Custom(_) => 0,
+        }
     }
 }
 

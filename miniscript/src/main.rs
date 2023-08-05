@@ -2,7 +2,7 @@ use crate::ast::{Spanned, AST};
 use crate::parsing::ast_parser::parser;
 use crate::parsing::parser::{lexer, Token};
 use crate::value::Value;
-use crate::vm::chunk::compile;
+use crate::vm::chunk::{compile, pretty_print};
 use crate::vm::{DefaultRunner, Vm, VmRunner};
 use ariadne::{sources, Color, ColorGenerator, Label, Report, ReportKind, Source};
 use chumsky::error::Rich;
@@ -84,6 +84,8 @@ fn main() {
         if !(result.has_errors()) {
             if let Some(body) = result.into_output() {
                 let chunk = compile(AST::from_body_unchecked(body));
+
+                println!("{}", pretty_print(&chunk, &src));
                 let mut vm = Vm {
                     cursor: 0,
                     stack: vec![Value::Null; chunk.stack_size()],

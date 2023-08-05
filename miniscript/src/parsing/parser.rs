@@ -181,7 +181,9 @@ pub fn lexer<'src>(
         .then(one_of("+-").or_not())
         .then(digits);
 
-    let number = digits
+    let number = just('-')
+        .or_not()
+        .then(digits)
         .then(frac.or_not())
         .then(exp.or_not())
         .map_slice(Token::Number)

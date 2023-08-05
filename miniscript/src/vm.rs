@@ -46,8 +46,7 @@ impl VmRunner for DefaultRunner {
     fn run(&mut self, chunk: &Chunk, vm: &mut Vm) -> Result<(), MsError> {
         while vm.cursor < chunk.code().len() {
             let op_code = &chunk.code()[vm.cursor];
-            op_code.run(vm)?;
-            vm.cursor += 1;
+            op_code.step(vm)?;
         }
 
         Ok(())

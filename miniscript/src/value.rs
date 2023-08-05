@@ -60,6 +60,20 @@ impl Value {
     numeric_as!(as_i32, as_i32_checked, i32);
     numeric_as!(as_i64, as_i64_checsked, i64);
     numeric_as!(as_i128, as_i128_checked, i128);
+
+    pub fn as_bool(&self) -> bool {
+        match self {
+            Value::Null => false,
+            Value::Number(num) => *num > 0.,
+        }
+    }
+
+    pub fn as_probability_number(&self) -> f64 {
+        match self {
+            Value::Number(num) => *num,
+            val => val.as_bool() as usize as f64,
+        }
+    }
 }
 
 impl Display for Value {
