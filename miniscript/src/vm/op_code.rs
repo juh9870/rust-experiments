@@ -78,13 +78,55 @@ pub enum OpCode {
         rhs: StackIndex,
     },
     #[strum(message = "")]
-    ProbabilityOr {
+    FuzzyOr {
         output: StackIndex,
         lhs: StackIndex,
         rhs: StackIndex,
     },
     #[strum(message = "")]
-    ProbabilityAnd {
+    FuzzyAnd {
+        output: StackIndex,
+        lhs: StackIndex,
+        rhs: StackIndex,
+    },
+    #[strum(message = "")]
+    And {
+        output: StackIndex,
+        lhs: StackIndex,
+        rhs: StackIndex,
+    },
+    #[strum(message = "")]
+    Equals {
+        output: StackIndex,
+        lhs: StackIndex,
+        rhs: StackIndex,
+    },
+    #[strum(message = "")]
+    NotEquals {
+        output: StackIndex,
+        lhs: StackIndex,
+        rhs: StackIndex,
+    },
+    #[strum(message = "")]
+    GreaterThan {
+        output: StackIndex,
+        lhs: StackIndex,
+        rhs: StackIndex,
+    },
+    #[strum(message = "")]
+    LessThan {
+        output: StackIndex,
+        lhs: StackIndex,
+        rhs: StackIndex,
+    },
+    #[strum(message = "")]
+    GreaterOrEquals {
+        output: StackIndex,
+        lhs: StackIndex,
+        rhs: StackIndex,
+    },
+    #[strum(message = "")]
+    LessOrEquals {
         output: StackIndex,
         lhs: StackIndex,
         rhs: StackIndex,
@@ -112,14 +154,16 @@ pub enum OpCode {
     Error(BytecodeError),
 }
 
-fn abs_clamp_01(mut num: f64) -> f64 {
-    if num < 0. {
-        num = num;
-    }
-    if num > 1. {
-        return 1.;
-    }
-    return num;
+#[inline(always)]
+fn simple_op<T: Fn(&Value, &Value) -> Value>(
+    vm: &mut Vm,
+    lhs: &StackIndex,
+    rhs: &StackIndex,
+    output: &StackIndex,
+    op: T,
+) -> Result<(), MsError> {
+    vm[output] = op(&vm[lhs], &vm[rhs]);
+    Ok(())
 }
 
 impl OpCode {
@@ -151,47 +195,35 @@ impl OpCode {
             }
             OpCode::Call1 { .. } => todo!(),
             OpCode::Call { .. } => todo!(),
-            OpCode::Add { lhs, rhs, output } => {
-                vm[output] = Value::from(vm[lhs].as_f64() + vm[rhs].as_f64());
-                Ok(())
+            OpCode::Add { lhs, rhs, output } => simple_op(vm, lhs, rhs, output, |a, b| a + b),
+            OpCode::Subtract { lhs, rhs, output } => simple_op(vm, lhs, rhs, output, |a, b| a - b),
+            OpCode::Multiply { lhs, rhs, output } => simple_op(vm, lhs, rhs, output, |a, b| a * b),
+            OpCode::Divide { lhs, rhs, output } => simple_op(vm, lhs, rhs, output, |a, b| a / b),
+            OpCode::Pow { lhs, rhs, output } => simple_op(vm, lhs, rhs, output, |a, b| a.pow(b)),
+            OpCode::FuzzyOr { lhs, rhs, output } => {
+                simple_op(vm, lhs, rhs, output, |a, b| a.fuzzy_or(b))
             }
-            OpCode::Subtract { lhs, rhs, output } => {
-                vm[output] = Value::from(vm[lhs].as_f64() - vm[rhs].as_f64());
-                Ok(())
+            OpCode::FuzzyAnd { lhs, rhs, output } => {
+                simple_op(vm, lhs, rhs, output, |a, b| a.fuzzy_and(b))
             }
-            OpCode::Multiply { lhs, rhs, output } => {
-                vm[output] = Value::from(vm[lhs].as_f64() * vm[rhs].as_f64());
-                Ok(())
+            OpCode::And { lhs, rhs, output } => simple_op(vm, lhs, rhs, output, |a, b| a.and(b)),
+            OpCode::Equals { lhs, rhs, output } => {
+                simple_op(vm, lhs, rhs, output, |a, b| Value::from(a == b))
             }
-            OpCode::Divide { lhs, rhs, output } => {
-                vm[output] = Value::from(vm[lhs].as_f64() / vm[rhs].as_f64());
-                Ok(())
+            OpCode::NotEquals { lhs, rhs, output } => {
+                simple_op(vm, lhs, rhs, output, |a, b| Value::from(a != b))
             }
-            OpCode::Pow { lhs, rhs, output } => {
-                let lhs = vm[lhs].as_f64();
-                let rhs = vm[rhs].as_f64();
-                let mut result = 0.;
-                cfg_if::cfg_if! {
-                    if #[cfg(feature = "libm")] {
-                        result = libm::pow(lhs, rhs);
-                    } else {
-                        result = lhs.powf(rhs);
-                    }
-                }
-                vm[output] = Value::from(result);
-                Ok(())
+            OpCode::GreaterThan { lhs, rhs, output } => {
+                simple_op(vm, lhs, rhs, output, |a, b| a.gt(b))
             }
-            OpCode::ProbabilityOr { lhs, rhs, output } => {
-                let lhs = vm[lhs].as_probability_number();
-                let rhs = vm[rhs].as_probability_number();
-                vm[output] = Value::from(abs_clamp_01(lhs + rhs - lhs * rhs));
-                Ok(())
+            OpCode::LessThan { lhs, rhs, output } => {
+                simple_op(vm, lhs, rhs, output, |a, b| a.lt(b))
             }
-            OpCode::ProbabilityAnd { lhs, rhs, output } => {
-                let lhs = vm[lhs].as_probability_number();
-                let rhs = vm[rhs].as_probability_number();
-                vm[output] = Value::from(abs_clamp_01(lhs * rhs));
-                Ok(())
+            OpCode::GreaterOrEquals { lhs, rhs, output } => {
+                simple_op(vm, lhs, rhs, output, |a, b| a.gte(b))
+            }
+            OpCode::LessOrEquals { lhs, rhs, output } => {
+                simple_op(vm, lhs, rhs, output, |a, b| a.lte(b))
             }
             OpCode::Copy { source, output } => {
                 vm[output] = vm[source].clone();
@@ -251,11 +283,32 @@ impl OpCode {
             OpCode::Multiply { output, lhs, rhs } => format!("${output} = ${lhs} * ${rhs}"),
             OpCode::Divide { output, lhs, rhs } => format!("${output} = ${lhs} / ${rhs}"),
             OpCode::Pow { output, lhs, rhs } => format!("${output} = ${lhs} ^ ${rhs}"),
-            OpCode::ProbabilityOr { output, lhs, rhs } => {
-                format!("${output} = ${lhs} prob_or ${rhs}")
+            OpCode::FuzzyOr { output, lhs, rhs } => {
+                format!("${output} = ${lhs} fuzzy_or ${rhs}")
             }
-            OpCode::ProbabilityAnd { output, lhs, rhs } => {
-                format!("${output} = ${lhs} prob_and ${rhs}")
+            OpCode::FuzzyAnd { output, lhs, rhs } => {
+                format!("${output} = ${lhs} fuzzy_and ${rhs}")
+            }
+            OpCode::And { output, lhs, rhs } => {
+                format!("${output} = ${lhs} and ${rhs}")
+            }
+            OpCode::Equals { output, lhs, rhs } => {
+                format!("${output} = ${lhs} == ${rhs}")
+            }
+            OpCode::NotEquals { output, lhs, rhs } => {
+                format!("${output} = ${lhs} != ${rhs}")
+            }
+            OpCode::GreaterThan { output, lhs, rhs } => {
+                format!("${output} = ${lhs} > ${rhs}")
+            }
+            OpCode::LessThan { output, lhs, rhs } => {
+                format!("${output} = ${lhs} < ${rhs}")
+            }
+            OpCode::GreaterOrEquals { output, lhs, rhs } => {
+                format!("${output} = ${lhs} >= ${rhs}")
+            }
+            OpCode::LessOrEquals { output, lhs, rhs } => {
+                format!("${output} = ${lhs} <= ${rhs}")
             }
             OpCode::Copy { source, output } => format!("${output} = ${source}"),
             OpCode::JumpIfFalse(condition, target) => format!("if not ${condition} goto {target}"),

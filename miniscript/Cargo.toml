@@ -17,6 +17,7 @@ ariadne = "0.3.0"
 rustc-hash = "1"
 libm = { version = "0.2", optional = true }
 cfg-if = "1"
+auto_ops = "0.3"
 
 [features]
 libm = ["dep:libm"]

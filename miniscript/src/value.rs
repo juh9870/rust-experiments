@@ -1,5 +1,6 @@
-use num_traits::Num;
+use auto_ops::impl_op_ex;
 use std::fmt::Display;
+use std::ops::Neg;
 
 #[non_exhaustive]
 #[derive(Debug, Clone)]
@@ -29,7 +30,31 @@ macro_rules! numeric_from {
                 value.as_f64() as $type
             }
         }
+        impl From<$type> for Value {
+            fn from(value: $type) -> Self {
+                Value::Number(value as f64)
+            }
+        }
     };
+}
+
+#[inline(always)]
+fn numeric_op<A: Fn(&f64, &f64) -> T, T: Into<Value>>(a: &Value, b: &Value, op: A) -> Value {
+    match (a, b) {
+        (Value::Number(a), Value::Number(b)) => op(a, b).into(),
+        (Value::Number(a), Value::Null) => op(a, &0.).into(),
+        _ => Value::Null,
+    }
+}
+
+fn abs_clamp_01(mut num: f64) -> f64 {
+    if num < 0. {
+        num = -num;
+    }
+    if num > 1. {
+        return 1.;
+    }
+    num
 }
 
 impl Value {
@@ -54,6 +79,7 @@ impl Value {
     numeric_as!(as_u32, as_u32_checked, u32);
     numeric_as!(as_u64, as_u64_checked, u64);
     numeric_as!(as_u128, as_u128_checked, u128);
+    numeric_as!(as_usize, as_usize_checked, usize);
 
     numeric_as!(as_i8, as_i8_checked, i8);
     numeric_as!(as_i16, as_i16_checked, i16);
@@ -74,6 +100,50 @@ impl Value {
             val => val.as_bool() as usize as f64,
         }
     }
+
+    pub fn lt(&self, other: &Value) -> Value {
+        numeric_op(self, other, |a, b| a < b)
+    }
+
+    pub fn lte(&self, other: &Value) -> Value {
+        numeric_op(self, other, |a, b| a <= b)
+    }
+
+    pub fn gt(&self, other: &Value) -> Value {
+        numeric_op(self, other, |a, b| a > b)
+    }
+
+    pub fn gte(&self, other: &Value) -> Value {
+        numeric_op(self, other, |a, b| a >= b)
+    }
+
+    pub fn pow(&self, other: &Value) -> Value {
+        numeric_op(self, other, |a, b| {
+            cfg_if::cfg_if! {
+                if #[cfg(feature = "libm")] {
+                    return libm::pow(*a, *b);
+                } else {
+                    return a.powf(*b);
+                }
+            }
+        })
+    }
+
+    pub fn fuzzy_or(&self, other: &Value) -> Value {
+        numeric_op(self, other, |a, b| abs_clamp_01(a + b - a * b))
+    }
+
+    pub fn fuzzy_and(&self, other: &Value) -> Value {
+        numeric_op(self, other, |a, b| abs_clamp_01(a * b))
+    }
+
+    pub fn or(&self, other: &Value) -> Value {
+        Value::from(self.as_bool() || other.as_bool())
+    }
+
+    pub fn and(&self, other: &Value) -> Value {
+        Value::from(self.as_bool() && other.as_bool())
+    }
 }
 
 impl Display for Value {
@@ -87,9 +157,40 @@ impl Display for Value {
     }
 }
 
-impl<T: Into<f64> + Num> From<T> for Value {
-    fn from(value: T) -> Self {
-        Value::Number(value.into())
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Value::Null, Value::Null) => false,
+            (Value::Number(a), Value::Number(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Value {}
+
+impl_op_ex!(+|a: &Value, b: &Value| -> Value { numeric_op(a, b, |a, b| a + b) });
+
+impl_op_ex!(-|a: &Value, b: &Value| -> Value { numeric_op(a, b, |a, b| a - b) });
+
+impl_op_ex!(*|a: &Value, b: &Value| -> Value { numeric_op(a, b, |a, b| a * b) });
+
+impl_op_ex!(/|a: &Value, b: &Value| -> Value { numeric_op(a, b, |a, b| a / b) });
+
+impl Neg for Value {
+    type Output = Value;
+
+    fn neg(self) -> Self::Output {
+        match self {
+            Value::Null => Value::Number(-0.),
+            Value::Number(num) => Value::Number(-num),
+        }
+    }
+}
+
+impl From<bool> for Value {
+    fn from(value: bool) -> Self {
+        Self::from(value as usize)
     }
 }
 
@@ -101,6 +202,7 @@ numeric_from!(u16);
 numeric_from!(u32);
 numeric_from!(u64);
 numeric_from!(u128);
+numeric_from!(usize);
 
 numeric_from!(i8);
 numeric_from!(i16);

@@ -1,5 +1,5 @@
 use crate::ast::{
-    ast_err, BinaryOp, Body, Expr, Path, Span, Spanned, Statement, UnaryOp, Value, AST,
+    ast_err, BinaryOp, Body, Comparison, Expr, Path, Span, Spanned, Statement, UnaryOp, Value, AST,
 };
 use crate::vm::op_code::{BytecodeError, OpCode};
 use crate::vm::register::StackIndex;
@@ -230,6 +230,15 @@ impl<'src> FunctionCompilationContext<'src> {
                 i
             )
         }
+
+        for (ident, var) in self.declared_variables.iter() {
+            assert!(
+                !self.free_registers.iter().any(|e| e.0 == var.register),
+                "Variable {} has its register ${} released",
+                ident,
+                var.register
+            )
+        }
     }
 
     fn ops_length(&self) -> usize {
@@ -422,7 +431,9 @@ fn compile_expressions<'src>(
         Expr::List(_) => todo!(),
         Expr::Map(_) => todo!(),
         Expr::FunctionDefinition(_, _) => todo!(),
-        Expr::Comparison(_, _) => todo!(),
+        Expr::Comparison(lhs, comparisons) => {
+            compile_comparison_chain(lhs, comparisons, *span, register, ctx)
+        }
         Expr::Binary(lhs, op, rhs) => compile_binary_op(lhs, op, rhs, *span, register, ctx),
         Expr::Unary(_, _) => todo!(),
         Expr::Call(expr, arguments) => compile_function_call(expr, arguments, *span, register, ctx),
@@ -489,6 +500,83 @@ fn compile_path<'src>(
     }
 }
 
+fn compile_comparison_chain<'src>(
+    lhs: &Spanned<Expr<'src>>,
+    chain: &Vec<(Comparison, Spanned<Expr<'src>>)>,
+    span: Span,
+    register: Option<StackIndex>,
+    ctx: &mut FunctionCompilationContext<'src>,
+) -> StackIndex {
+    let (register, released) = ctx.actualize_and_release_if_unused(register);
+    if chain.len() == 1 {
+        let (comparison, rhs) = &chain[0];
+        let lhs_register = compile_expressions(lhs, None, ctx, false);
+        let rhs_register = compile_expressions(rhs, None, ctx, false);
+        ctx.emit(
+            comparison_op(*comparison, lhs_register, rhs_register, register),
+            span,
+        );
+
+        ctx.release_if_unused(lhs_register);
+        ctx.release_if_unused(rhs_register);
+    } else {
+        // General algorithm is to evaluate all comparisons in order, merging results into an accumulator
+        let accumulator = ctx.get_register();
+        ctx.emit(OpCode::SetNumber(accumulator, 1.), 0..0);
+
+        // On each iteration, we compare lhs and rhs, and then transform rhs into the next lhs
+        let mut lhs_register = compile_expressions(lhs, None, ctx, false);
+        let mut previous = lhs;
+        for (comparison, rhs) in chain {
+            let rhs_register = compile_expressions(rhs, None, ctx, false);
+            ctx.release_if_unused(lhs_register);
+            let tmp_register = ctx.get_register();
+            ctx.emit(
+                comparison_op(*comparison, lhs_register, rhs_register, tmp_register),
+                previous.1.start..rhs.1.end,
+            );
+            ctx.emit(
+                OpCode::And {
+                    lhs: accumulator,
+                    rhs: tmp_register,
+                    output: accumulator,
+                },
+                lhs.1.start..rhs.1.end,
+            );
+            ctx.release_if_unused(tmp_register);
+            ctx.release_if_unused(lhs_register);
+            lhs_register = rhs_register;
+            previous = rhs;
+        }
+        ctx.release_if_unused(accumulator);
+
+        if register != accumulator {
+            ctx.emit(
+                OpCode::Copy {
+                    source: accumulator,
+                    output: register,
+                },
+                span,
+            );
+        }
+    }
+    if released {
+        ctx.take_back_register(register);
+    }
+    register
+}
+
+fn comparison_op(comp: Comparison, lhs: StackIndex, rhs: StackIndex, output: StackIndex) -> OpCode {
+    match comp {
+        Comparison::Eq => OpCode::Equals { lhs, rhs, output },
+        Comparison::NotEq => OpCode::NotEquals { lhs, rhs, output },
+        Comparison::Gt => OpCode::GreaterThan { lhs, rhs, output },
+        Comparison::Lt => OpCode::LessThan { lhs, rhs, output },
+        Comparison::GtEq => OpCode::GreaterOrEquals { lhs, rhs, output },
+        Comparison::LtEq => OpCode::LessOrEquals { lhs, rhs, output },
+    }
+}
+
 fn compile_binary_op<'src>(
     lhs: &Spanned<Expr<'src>>,
     op: &BinaryOp,
@@ -499,7 +587,7 @@ fn compile_binary_op<'src>(
 ) -> StackIndex {
     let op = *op;
     if op == BinaryOp::Or || op == BinaryOp::And {
-        return compile_binary_or(lhs, rhs, op == BinaryOp::And, span, register, ctx);
+        return compile_binary_logic(lhs, rhs, op == BinaryOp::And, span, register, ctx);
     }
     let (output, released) = ctx.actualize_and_release_if_unused(register);
     // If the right side can have side effects, we create a new register for lhs
@@ -529,7 +617,7 @@ fn compile_binary_op<'src>(
     output
 }
 
-fn compile_binary_or<'src>(
+fn compile_binary_logic<'src>(
     lhs: &Spanned<Expr<'src>>,
     rhs: &Spanned<Expr<'src>>,
     is_and: bool,
@@ -547,7 +635,7 @@ fn compile_binary_or<'src>(
 
     if is_and {
         ctx.emit(
-            OpCode::ProbabilityAnd {
+            OpCode::FuzzyAnd {
                 output: register,
                 lhs: lhs_register,
                 rhs: rhs_register,
@@ -556,7 +644,7 @@ fn compile_binary_or<'src>(
         );
     } else {
         ctx.emit(
-            OpCode::ProbabilityOr {
+            OpCode::FuzzyOr {
                 output: register,
                 lhs: lhs_register,
                 rhs: rhs_register,
@@ -590,15 +678,6 @@ fn compile_binary_or<'src>(
         ctx.take_back_register(register);
     }
     register
-}
-
-fn compile_binary_and<'src>(
-    lhs: &Spanned<Expr<'src>>,
-    rhs: &Spanned<Expr<'src>>,
-    span: Span,
-    register: Option<StackIndex>,
-    ctx: &mut FunctionCompilationContext<'src>,
-) {
 }
 
 fn compile_function_call<'src>(
