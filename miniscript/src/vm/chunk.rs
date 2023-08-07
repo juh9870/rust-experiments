@@ -510,7 +510,12 @@ fn compile_comparison_chain<'src>(
     let (register, released) = ctx.actualize_and_release_if_unused(register);
     if chain.len() == 1 {
         let (comparison, rhs) = &chain[0];
-        let lhs_register = compile_expressions(lhs, None, ctx, false);
+        let lhs_register = if ctx.use_locals_map && can_have_side_effects(&rhs.0, ctx) {
+            Some(ctx.get_register())
+        } else {
+            None
+        };
+        let lhs_register = compile_expressions(lhs, lhs_register, ctx, false);
         let rhs_register = compile_expressions(rhs, None, ctx, false);
         ctx.emit(
             comparison_op(*comparison, lhs_register, rhs_register, register),
@@ -524,11 +529,27 @@ fn compile_comparison_chain<'src>(
         let accumulator = ctx.get_register();
         ctx.emit(OpCode::SetNumber(accumulator, 1.), 0..0);
 
+        let lhs_register =
+            if ctx.use_locals_map && chain.iter().any(|e| can_have_side_effects(&e.1 .0, ctx)) {
+                Some(ctx.get_register())
+            } else {
+                None
+            };
+
         // On each iteration, we compare lhs and rhs, and then transform rhs into the next lhs
-        let mut lhs_register = compile_expressions(lhs, None, ctx, false);
+        let mut lhs_register = compile_expressions(lhs, lhs_register, ctx, false);
         let mut previous = lhs;
-        for (comparison, rhs) in chain {
-            let rhs_register = compile_expressions(rhs, None, ctx, false);
+        for (i, (comparison, rhs)) in chain.iter().enumerate() {
+            let rhs_register = if ctx.use_locals_map
+                && chain[i + 1..]
+                    .iter()
+                    .any(|e| can_have_side_effects(&e.1 .0, ctx))
+            {
+                Some(ctx.get_register())
+            } else {
+                None
+            };
+            let rhs_register = compile_expressions(rhs, rhs_register, ctx, false);
             ctx.release_if_unused(lhs_register);
             let tmp_register = ctx.get_register();
             ctx.emit(
@@ -627,7 +648,16 @@ fn compile_binary_logic<'src>(
 ) -> StackIndex {
     let (register, released) = ctx.actualize_and_release_if_unused(register);
 
-    let lhs_register = compile_expressions(lhs, None, ctx, false);
+    // If the right side can have side effects, we create a new register for lhs
+    // Note that when locals map is not used, lhs variable can't be changed by side effects
+    // of rhs
+    let lhs_register = if ctx.use_locals_map && can_have_side_effects(&rhs.0, ctx) {
+        Some(ctx.get_register())
+    } else {
+        None
+    };
+
+    let lhs_register = compile_expressions(lhs, lhs_register, ctx, false);
 
     let jump = ctx.emit_reserve(span);
 
