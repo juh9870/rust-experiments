@@ -405,7 +405,7 @@ fn expr_parser<'tokens, 'src: 'tokens>(
     })
 }
 
-pub fn parser<'tokens, 'src: 'tokens>() -> impl Parser<
+pub fn ast_parser<'tokens, 'src: 'tokens>() -> impl Parser<
     'tokens,
     ParserInput<'tokens, 'src>,
     Vec<Spanned<Statement<'src>>>,

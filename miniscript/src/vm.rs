@@ -46,7 +46,10 @@ impl VmRunner for DefaultRunner {
     fn run(&mut self, chunk: &Chunk, vm: &mut Vm) -> Result<(), MsError> {
         while vm.cursor < chunk.code().len() {
             let op_code = &chunk.code()[vm.cursor];
-            op_code.step(vm)?;
+            op_code.step(vm).map_err(|err| MsError {
+                src_id: chunk.get_src_id().to_string(),
+                error_type: err,
+            })?;
         }
 
         Ok(())

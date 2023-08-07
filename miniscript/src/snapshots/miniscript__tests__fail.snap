@@ -1,0 +1,12 @@
+---
+source: miniscript/src/tests.rs
+expression: result
+---
+[2000] Error: 
+   ╭─[<eval>:1:1]
+   │
+ 1 │ if a print 5
+   │ ──┬─  
+   │   ╰─── if statement must be followed by `then`
+───╯
+

@@ -1,4 +1,4 @@
-use crate::errors::{InternalError, MsError, RuntimeError};
+use crate::errors::{InternalError, MsError, MsErrorType, RuntimeError};
 use crate::value::Value;
 use crate::vm::chunk::ConstantIndex;
 use std::fmt::format;
@@ -161,13 +161,13 @@ fn simple_op<T: Fn(&Value, &Value) -> Value>(
     rhs: &StackIndex,
     output: &StackIndex,
     op: T,
-) -> Result<(), MsError> {
+) -> Result<(), MsErrorType> {
     vm[output] = op(&vm[lhs], &vm[rhs]);
     Ok(())
 }
 
 impl OpCode {
-    pub fn step(&self, vm: &mut Vm) -> Result<(), MsError> {
+    pub fn step(&self, vm: &mut Vm) -> Result<(), MsErrorType> {
         vm.cursor += 1;
         match self {
             OpCode::Return(value) => {
@@ -331,7 +331,7 @@ pub enum BytecodeError {
 }
 
 impl BytecodeError {
-    fn error(&self, id: usize, vm: &Vm) -> MsError {
+    fn error(&self, id: usize, vm: &Vm) -> MsErrorType {
         match self {
             BytecodeError::Message(msg) => todo!(),
             BytecodeError::Register(idx) => RuntimeError::Custom(vm[idx].clone()).into(),

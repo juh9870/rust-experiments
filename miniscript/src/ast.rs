@@ -1,28 +1,36 @@
 use crate::errors::MsError;
 use chumsky::span::SimpleSpan;
 
-pub struct AST<'src>(Body<'src>);
+pub struct AST<'src> {
+    body: Body<'src>,
+    src_id: String,
+}
 
 impl<'src> AST<'src> {
     pub fn body(&self) -> &Body<'src> {
-        return &self.0;
+        return &self.body;
     }
-    pub fn from_body(body: Body<'src>) -> Result<Self, MsError> {
-        Ok(Self(body))
+    pub fn src_id(&self) -> &str {
+        return &self.src_id;
+    }
+    pub fn from_body(body: Body<'src>, src_id: String) -> Result<Self, MsError> {
+        Ok(Self { body, src_id })
     }
 
-    pub fn from_body_unchecked(body: Body<'src>) -> Self {
-        Self(body)
+    pub fn from_body_unchecked(body: Body<'src>, src_id: String) -> Self {
+        Self { body, src_id }
+    }
+
+    pub fn into_body_src(self) -> (Body<'src>, String) {
+        (self.body, self.src_id)
     }
 }
 
 impl<'src> From<AST<'src>> for Body<'src> {
     fn from(value: AST<'src>) -> Self {
-        value.0
+        value.body
     }
 }
-
-pub struct DirtyAST<'src>(pub Body<'src>);
 
 pub type Span = SimpleSpan<usize>;
 pub type Spanned<T> = (T, Span);
@@ -76,19 +84,14 @@ pub enum Expr<'src> {
 
 impl<'src> Expr<'src> {
     pub fn is_valid_assignment_target(&self) -> bool {
-        match self {
-            Self::Path(_) => true,
-            Self::Index(_, _) => true,
-            Self::ExprIndex(_, _) => true,
-            _ => false,
-        }
+        matches!(
+            self,
+            Self::Path(_) | Self::Index(_, _) | Self::ExprIndex(_, _)
+        )
     }
 
     pub fn is_constant(&self) -> bool {
-        match self {
-            Self::Value(_) => true,
-            _ => false,
-        }
+        matches!(self, Self::Value(_))
     }
 }
 

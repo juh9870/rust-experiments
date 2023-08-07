@@ -1,21 +1,67 @@
 use crate::ast::{Spanned, AST};
-use crate::parsing::ast_parser::parser;
+use crate::errors::{CompileError, MsError, MsErrorType};
+use crate::parsing::ast_parser::ast_parser;
 use crate::parsing::parser::{lexer, Token};
 use crate::value::Value;
-use crate::vm::chunk::{compile, pretty_print};
+use crate::vm::chunk::{compile_chunk, pretty_print, Chunk};
 use crate::vm::{DefaultRunner, Vm, VmRunner};
 use ariadne::{sources, Color, ColorGenerator, Label, Report, ReportKind, Source};
 use chumsky::error::Rich;
 use chumsky::prelude::Input;
 use chumsky::{ParseResult, Parser};
-use std::{env, fs};
+use std::fmt::Display;
+use std::{env, fs, process};
 
 pub mod ast;
 pub mod errors;
-pub mod optimizer;
 pub mod parsing;
+#[cfg(test)]
+pub mod tests;
 pub mod value;
 pub mod vm;
+
+fn format_errors<T: Display>(src_id: &str, errors: Vec<Rich<T>>) -> Vec<MsError> {
+    errors
+        .into_iter()
+        .map(CompileError::from_compilation)
+        .map(|err| MsError {
+            error_type: err.into(),
+            src_id: src_id.to_string(),
+        })
+        .collect()
+}
+
+pub fn compile(src_id: &str, src: &str) -> Result<Chunk, Vec<MsError>> {
+    let lexer = lexer();
+    let (tokens, errors) = lexer.parse(src).into_output_errors();
+
+    if !errors.is_empty() {
+        return Err(format_errors(src_id, errors));
+    }
+
+    let tokens = tokens.expect("Tokens output is none, but no errors were emitted either");
+    let stripped = tokens
+        .into_iter()
+        .filter(|token| !matches!(token.0, Token::Comment(_)))
+        .collect::<Vec<_>>();
+    let spanned = stripped.spanned((src.len()..src.len()).into());
+
+    let ast_parser = ast_parser();
+
+    let (ast, errors) = ast_parser.parse(spanned).into_output_errors();
+
+    if !errors.is_empty() {
+        return Err(format_errors(src_id, errors));
+    }
+
+    let ast = ast.expect("AST output is none, but no errors were emitted either");
+
+    let ast = AST::from_body(ast, src_id.to_string()).map_err(|err| vec![err])?;
+
+    let chunk = compile_chunk(ast);
+
+    Ok(chunk)
+}
 
 fn main() {
     let filename = env::args().nth(1).expect("Expected file argument");
@@ -26,74 +72,26 @@ fn main() {
 
     let src = fs::read_to_string(&filename).expect("Failed to read file");
 
-    let p = lexer();
-
-    let mut result: ParseResult<Vec<Spanned<Token>>, Rich<char>> = p.parse(src.as_str());
-    //     let result = p.parse("\n");
-    println!("Tokens:\n\n{result:?}\n\n");
-
-    if let Some(tokens) = result.into_output() {
-        let filtered = tokens
-            .into_iter()
-            .filter(|token| !matches!(token.0, Token::Comment(_)))
-            .collect::<Vec<_>>();
-        let mut a = 1;
-
-        let astp = parser();
-        let result = astp.parse((&filtered).spanned((src.len()..src.len()).into()));
-
-        // for err in result.errors() {
-        //     let mut colors = ColorGenerator::new();
-        //     let a = colors.next();
-        //     let b = colors.next();
-        //     Report::build(ReportKind::Error, "<eval>", 0)
-        //         .with_message(&err.to_string())
-        //         .with_label(
-        //             Label::new(("<eval>", err.span().into_range())).with_color(a)
-        //         ).finish().print(("<eval>", Source::from(src))).unwrap();
-        // }
-
-        result
-            .errors()
-            .map(|e| e.clone().map_token(|c| c.to_string()))
-            // .chain(
-            //     parse_errs
-            //         .into_iter()
-            //         .map(|e| e.map_token(|tok| tok.to_string())),
-            // )
-            .for_each(|e| {
-                Report::build(ReportKind::Error, filename.clone(), e.span().start)
-                    .with_message(e.to_string())
-                    .with_label(
-                        Label::new((filename.clone(), e.span().into_range()))
-                            .with_message(e.reason().to_string())
-                            .with_color(Color::Red),
-                    )
-                    .with_labels(e.contexts().map(|(label, span)| {
-                        Label::new((filename.clone(), span.into_range()))
-                            .with_message(format!("while parsing this {}", label))
-                            .with_color(Color::Yellow)
-                    }))
-                    .finish()
-                    .print(sources([(filename.clone(), src.clone())]))
-                    .unwrap()
-            });
-
-        println!("AST:\n\n{result:?}\n\n");
-
-        if !(result.has_errors()) {
-            if let Some(body) = result.into_output() {
-                let chunk = compile(AST::from_body_unchecked(body));
-
-                println!("{}", pretty_print(&chunk, &src));
-                let mut vm = Vm {
-                    cursor: 0,
-                    stack: vec![Value::Null; chunk.stack_size()],
-                };
-                DefaultRunner.run(&chunk, &mut vm).unwrap();
-            }
+    let chunk = compile(&filename, &src).unwrap_or_else(|errors| {
+        for err in errors {
+            err.report(None, None)
+                .print(sources([(filename.clone(), src.clone())]))
+                .expect("Failed to print error message");
         }
-    }
+        process::exit(1);
+    });
+
+    println!("{}", pretty_print(&chunk, &src));
+    let mut vm = Vm {
+        cursor: 0,
+        stack: vec![Value::Null; chunk.stack_size()],
+    };
+    DefaultRunner.run(&chunk, &mut vm).unwrap_or_else(|err| {
+        err.report(Some(&chunk), Some(&vm))
+            .print(sources([(filename.clone(), src.clone())]))
+            .expect("Failed to print error message");
+        process::exit(1);
+    });
 
     // println!("{}", result.unwrap()[0].0)
 }

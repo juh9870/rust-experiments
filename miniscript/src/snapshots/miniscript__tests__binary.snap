@@ -1,0 +1,7 @@
+---
+source: miniscript/src/tests.rs
+expression: result
+---
+1 + 2
+------
+0: return  |  

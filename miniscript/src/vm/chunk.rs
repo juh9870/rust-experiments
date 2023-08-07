@@ -18,6 +18,7 @@ impl ConstantIndex {
 
 #[derive(Debug, Clone)]
 pub struct Chunk {
+    src_id: String,
     code: Vec<OpCode>,
     spans: Vec<Span>,
     strings: Vec<String>,
@@ -25,6 +26,10 @@ pub struct Chunk {
 }
 
 impl Chunk {
+    pub fn get_src_id(&self) -> &str {
+        &self.src_id
+    }
+
     pub fn get_constant(&self, index: &ConstantIndex) -> &str {
         &self.strings[index.0]
     }
@@ -50,7 +55,7 @@ pub fn pretty_print(chunk: &Chunk, source: &str) -> String {
         .zip(chunk.spans.iter())
         .collect::<Vec<(String, &Span)>>();
 
-    let id_len = (chunk.code.len() - 1).ilog10() as usize + 1;
+    let id_len = (chunk.code.len() - 1).max(1).ilog10() as usize + 1;
 
     let align = pairs.iter().map(|e| e.0.len()).max().unwrap_or(0);
     pairs
@@ -66,12 +71,13 @@ pub fn pretty_print(chunk: &Chunk, source: &str) -> String {
         .join("\n")
 }
 
-pub fn compile<'src>(ast: AST<'src>) -> Chunk {
-    let body = Body::from(ast);
-    let mut ctx = FunctionCompilationContext::<'src>::default();
+pub fn compile_chunk<'src>(ast: AST<'src>) -> Chunk {
+    let (body, src_id) = ast.into_body_src();
+    let mut ctx = FunctionCompilationContext::<'src>::new();
     compile_body(&body, &mut ctx);
     ctx.emit(OpCode::Return(None), Span::from(0..0));
     ctx.chunk.stack_size = ctx.next_register;
+    ctx.chunk.src_id = src_id;
     ctx.chunk
 }
 
@@ -83,6 +89,26 @@ struct FunctionCompilationContext<'src> {
     patches: FxHashSet<usize>,
     assignment_spans: Vec<usize>,
     chunk: Chunk,
+}
+
+impl<'src> FunctionCompilationContext<'src> {
+    fn new() -> Self {
+        Self {
+            use_locals_map: false,
+            declared_variables: Default::default(),
+            next_register: 0,
+            free_registers: Default::default(),
+            patches: Default::default(),
+            assignment_spans: vec![],
+            chunk: Chunk {
+                src_id: "".to_string(),
+                code: vec![],
+                spans: vec![],
+                strings: vec![],
+                stack_size: 0,
+            },
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -261,25 +287,6 @@ impl<'src> FunctionCompilationContext<'src> {
 
     fn clear_assignment_spans(&mut self) {
         self.assignment_spans.clear();
-    }
-}
-
-impl<'src> Default for FunctionCompilationContext<'src> {
-    fn default() -> Self {
-        Self {
-            use_locals_map: false,
-            declared_variables: Default::default(),
-            next_register: 0,
-            free_registers: Default::default(),
-            patches: Default::default(),
-            assignment_spans: vec![],
-            chunk: Chunk {
-                code: vec![],
-                spans: vec![],
-                strings: vec![],
-                stack_size: 0,
-            },
-        }
     }
 }
 
